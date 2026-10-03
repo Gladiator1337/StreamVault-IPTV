@@ -11,6 +11,8 @@ import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.provider.PluginProviderOwnershipReader
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.usecase.SyncProvider
 import com.streamvault.domain.usecase.SyncProviderCommand
 import com.streamvault.domain.usecase.SyncProviderResult
@@ -33,6 +35,7 @@ internal fun shouldAutoSyncProvider(
 
 internal class SettingsProviderActions(
     private val providerRepository: ProviderRepository,
+    private val pluginProviderOwnershipReader: PluginProviderOwnershipReader,
     private val combinedM3uRepository: CombinedM3uRepository,
     private val preferencesRepository: SettingsPreferences,
     private val syncProvider: SyncProvider,
@@ -43,6 +46,17 @@ internal class SettingsProviderActions(
 ) {
     private companion object {
         val AUTO_SWITCH_SYNC_STALE_AFTER_MS = 24.hours.inWholeMilliseconds
+        const val PLUGIN_MANAGED_MESSAGE = "This provider is managed by a plugin."
+    }
+
+    fun requestEditProvider(scope: CoroutineScope, provider: Provider, onAllowed: (Provider) -> Unit) {
+        scope.launch {
+            if (pluginProviderOwnershipReader.ownerOf(provider.id) != null) {
+                uiState.update { it.copy(userMessage = PLUGIN_MANAGED_MESSAGE) }
+            } else {
+                onAllowed(provider)
+            }
+        }
     }
 
     fun setActiveProvider(scope: CoroutineScope, providerId: Long) {
@@ -486,6 +500,10 @@ internal class SettingsProviderActions(
 
     fun deleteProvider(scope: CoroutineScope, providerId: Long, onSuccess: () -> Unit = {}) {
         scope.launch {
+            if (pluginProviderOwnershipReader.ownerOf(providerId) != null) {
+                uiState.update { it.copy(userMessage = PLUGIN_MANAGED_MESSAGE) }
+                return@launch
+            }
             uiState.update {
                 it.copy(
                     isDeletingProvider = true,

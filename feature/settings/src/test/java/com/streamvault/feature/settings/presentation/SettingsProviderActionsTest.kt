@@ -10,6 +10,8 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.provider.PluginProviderOwnershipReader
+import com.streamvault.domain.provider.PluginSourceIdentity
 import com.streamvault.domain.usecase.SyncProvider
 import com.streamvault.feature.settings.api.SettingsSurfaceRefreshPort
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,6 +32,7 @@ import org.mockito.kotlin.whenever
 class SettingsProviderActionsTest {
 
     private val providerRepository: ProviderRepository = mock()
+    private val pluginProviderOwnershipReader: PluginProviderOwnershipReader = mock()
     private val combinedM3uRepository: CombinedM3uRepository = mock()
     private val preferencesRepository: SettingsPreferences = mock()
     private val syncProvider: SyncProvider = mock()
@@ -40,6 +43,7 @@ class SettingsProviderActionsTest {
 
     private val actions = SettingsProviderActions(
         providerRepository = providerRepository,
+        pluginProviderOwnershipReader = pluginProviderOwnershipReader,
         combinedM3uRepository = combinedM3uRepository,
         preferencesRepository = preferencesRepository,
         syncProvider = syncProvider,
@@ -150,4 +154,42 @@ class SettingsProviderActionsTest {
         assertThat(uiState.value.isDeletingProvider).isFalse()
         assertThat(uiState.value.userMessage).isEqualTo("Provider deleted")
     }
+
+    @Test
+    fun manuallyCreatedProviderCanEnterEditFlow() = runTest(StandardTestDispatcher()) {
+        val provider = Provider(id = 7L, name = "Manual", type = ProviderType.M3U, serverUrl = "https://example.com")
+        var edited: Provider? = null
+
+        actions.requestEditProvider(this, provider) { edited = it }
+        advanceUntilIdle()
+
+        assertThat(edited).isEqualTo(provider)
+    }
+
+    @Test
+    fun pluginOwnedProviderCannotEnterEditFlow() = runTest(StandardTestDispatcher()) {
+        val provider = Provider(id = 7L, name = "TestTV", type = ProviderType.XTREAM_CODES, serverUrl = "https://example.com")
+        whenever(pluginProviderOwnershipReader.ownerOf(7L)).thenReturn(pluginOwner)
+        var editInvoked = false
+
+        actions.requestEditProvider(this, provider) { editInvoked = true }
+        advanceUntilIdle()
+
+        assertThat(editInvoked).isFalse()
+        assertThat(uiState.value.userMessage).isEqualTo("This provider is managed by a plugin.")
+    }
+
+    @Test
+    fun pluginOwnedProviderCannotBeDeletedThroughSettings() = runTest(StandardTestDispatcher()) {
+        whenever(pluginProviderOwnershipReader.ownerOf(7L)).thenReturn(pluginOwner)
+
+        actions.deleteProvider(this, 7L)
+        advanceUntilIdle()
+
+        verify(providerRepository, never()).deleteProvider(eq(7L), any())
+        assertThat(uiState.value.isDeletingProvider).isFalse()
+        assertThat(uiState.value.userMessage).isEqualTo("This provider is managed by a plugin.")
+    }
+
+    private val pluginOwner = PluginSourceIdentity("com.streamvault.providerremote", "Service", "providerremote")
 }

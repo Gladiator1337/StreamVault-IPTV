@@ -166,6 +166,7 @@ private fun ProviderWarningRetryButton(
 @Composable
 public fun ProviderActionButtons(
     isActive: Boolean,
+    isPluginManaged: Boolean,
     isSyncing: Boolean,
     liveOnboardingIncomplete: Boolean,
     onConnect: () -> Unit,
@@ -176,6 +177,7 @@ public fun ProviderActionButtons(
     targetItemId: String? = null,
     targetFocusModifier: Modifier = Modifier,
 ) {
+    val availability = providerActionAvailability(isPluginManaged, isActive, liveOnboardingIncomplete)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         if (!isActive) {
             ProviderActionButton(
@@ -188,8 +190,16 @@ public fun ProviderActionButtons(
                 filled = true,
                 contentColor = com.streamvault.core.ui.theme.OnPrimary,
                 onClick = if (liveOnboardingIncomplete) onRefresh else onConnect,
-                modifier = if (targetItemId == "sources.sync") targetFocusModifier else Modifier,
+                modifier = if (targetItemId == "sources.sync" && !availability.showDedicatedSync) targetFocusModifier else Modifier,
             )
+            if (availability.showDedicatedSync) {
+                ProviderActionButton(
+                    label = if (isSyncing) stringResource(R.string.settings_syncing_btn) else stringResource(R.string.settings_sync_btn),
+                    accent = Primary,
+                    onClick = onRefresh,
+                    modifier = if (targetItemId == "sources.sync") targetFocusModifier else Modifier,
+                )
+            }
         } else {
             ProviderActionButton(
                 label = if (isSyncing) stringResource(R.string.settings_syncing_btn) else stringResource(R.string.settings_sync_btn),
@@ -199,21 +209,23 @@ public fun ProviderActionButtons(
             )
         }
 
-        ProviderActionButton(
-            label = stringResource(R.string.settings_edit),
-            accent = Secondary,
-            onClick = onEdit,
-            modifier = if (targetItemId == "sources.edit") targetFocusModifier else Modifier,
-        )
+        if (availability.allowEditAndDelete) {
+            ProviderActionButton(
+                label = stringResource(R.string.settings_edit),
+                accent = Secondary,
+                onClick = onEdit,
+                modifier = if (targetItemId == "sources.edit") targetFocusModifier else Modifier,
+            )
 
-        ProviderActionButton(
-            label = stringResource(R.string.settings_delete),
-            accent = ErrorColor,
-            onClick = onDelete,
-            modifier = if (targetItemId == "sources.delete") targetFocusModifier else Modifier,
-        )
+            ProviderActionButton(
+                label = stringResource(R.string.settings_delete),
+                accent = ErrorColor,
+                onClick = onDelete,
+                modifier = if (targetItemId == "sources.delete") targetFocusModifier else Modifier,
+            )
+        }
 
-        if (isActive) {
+        if (availability.showCategoryControls) {
             ProviderActionButton(
                 label = stringResource(R.string.settings_provider_category_controls_action),
                 accent = Primary,
@@ -222,6 +234,22 @@ public fun ProviderActionButtons(
         }
     }
 }
+
+internal data class ProviderActionAvailability(
+    val allowEditAndDelete: Boolean,
+    val showDedicatedSync: Boolean,
+    val showCategoryControls: Boolean
+)
+
+internal fun providerActionAvailability(
+    isPluginManaged: Boolean,
+    isActive: Boolean,
+    liveOnboardingIncomplete: Boolean
+): ProviderActionAvailability = ProviderActionAvailability(
+    allowEditAndDelete = !isPluginManaged,
+    showDedicatedSync = isPluginManaged && !isActive && !liveOnboardingIncomplete,
+    showCategoryControls = isActive || isPluginManaged
+)
 
 @Composable
 private fun ProviderActionButton(

@@ -90,6 +90,7 @@ public fun LazyListScope.providerSection(
             }
             ProviderSettingsCard(
                 provider = selectedProvider,
+                isPluginManaged = selectedProvider.id in uiState.pluginManagedProviders,
                 isActive = selectedProvider.id == uiState.activeProviderId,
                 isSyncing = uiState.isSyncing,
                 appTimeFormat = uiState.appTimeFormat,
@@ -114,7 +115,7 @@ public fun LazyListScope.providerSection(
                     providerState.showProviderSyncDialog = true
                 },
                 onDelete = { providerState.pendingDeleteProviderId = selectedProvider.id },
-                onEdit = { onEditProvider(selectedProvider) },
+                onEdit = { viewModel.requestEditProvider(selectedProvider, onEditProvider) },
                 onParentalControl = { onNavigateToParentalControl(selectedProvider.id) },
                 onToggleM3uVodClassification = { enabled ->
                     viewModel.setM3uVodClassificationEnabled(selectedProvider.id, enabled)

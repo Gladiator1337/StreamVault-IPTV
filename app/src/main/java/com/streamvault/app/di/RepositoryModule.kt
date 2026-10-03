@@ -31,11 +31,13 @@ import com.streamvault.domain.manager.BackupRestoreStatusStore
 import com.streamvault.data.manager.BackupRestoreStatusStoreImpl
 import com.streamvault.domain.provider.ProviderCapabilityRegistry
 import com.streamvault.domain.provider.ProviderSourceRegistry
+import com.streamvault.domain.provider.PluginProviderOwnershipReader
 import com.streamvault.domain.provider.PlayerPlaybackResolver
 import com.streamvault.domain.settings.PlayerPreferences
 import com.streamvault.domain.settings.SettingsPreferences
 import com.streamvault.app.playback.AppPlayerPlaybackResolver
 import com.streamvault.app.plugins.StreamVaultPluginManager
+import com.streamvault.app.plugins.RoomPluginProviderOwnershipReader
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -159,6 +161,9 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindProviderSourceRegistry(impl: StreamVaultPluginManager): ProviderSourceRegistry
+
+    @Binds @Singleton
+    abstract fun bindPluginProviderOwnershipReader(impl: RoomPluginProviderOwnershipReader): PluginProviderOwnershipReader
 
     @Binds @Singleton
     abstract fun bindPlaybackObservationSink(impl: PlaybackObservationCoordinator): PlaybackObservationSink

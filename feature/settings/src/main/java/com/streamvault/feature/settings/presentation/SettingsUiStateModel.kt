@@ -45,6 +45,7 @@ import com.streamvault.domain.model.RecordingStorageState
 import com.streamvault.domain.model.RemoteShortcutPreferences
 import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodVariantPreferenceMode
+import com.streamvault.domain.provider.PluginSourceIdentity
 
 data class CrashReportUiModel(
     val timestamp: String = "",
@@ -58,6 +59,7 @@ data class CrashReportUiModel(
 
 data class SettingsUiState(
     val providers: List<Provider> = emptyList(),
+    val pluginManagedProviders: Map<Long, PluginSourceIdentity> = emptyMap(),
     val combinedProfiles: List<CombinedM3uProfile> = emptyList(),
     val availableM3uProviders: List<Provider> = emptyList(),
     val activeProviderId: Long? = null,

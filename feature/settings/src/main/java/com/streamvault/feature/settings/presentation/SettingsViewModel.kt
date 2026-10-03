@@ -69,6 +69,8 @@ import com.streamvault.domain.usecase.ImportBackupResult
 import com.streamvault.domain.usecase.InspectBackupCommand
 import com.streamvault.domain.usecase.InspectBackupResult
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.provider.PluginProviderOwnershipReader
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.CategoryRepository
 import com.streamvault.domain.repository.ChannelRepository
@@ -95,6 +97,7 @@ private const val BACKGROUND_INDEX_STATUS_PREFIX = "Background index:"
 class SettingsViewModel @Inject constructor(
     @ApplicationContext application: Context,
     private val providerRepository: ProviderRepository,
+    private val pluginProviderOwnershipReader: PluginProviderOwnershipReader,
     private val combinedM3uRepository: CombinedM3uRepository,
     private val categoryRepository: CategoryRepository,
     private val channelRepository: ChannelRepository,
@@ -155,6 +158,7 @@ class SettingsViewModel @Inject constructor(
     )
     private val providerActions = SettingsProviderActions(
         providerRepository = providerRepository,
+        pluginProviderOwnershipReader = pluginProviderOwnershipReader,
         combinedM3uRepository = combinedM3uRepository,
         preferencesRepository = preferencesRepository,
         syncProvider = syncProvider,
@@ -186,6 +190,11 @@ class SettingsViewModel @Inject constructor(
     )
 
     init {
+        viewModelScope.launch {
+            pluginProviderOwnershipReader.observeOwners().collect { owners ->
+                _uiState.update { it.copy(pluginManagedProviders = owners) }
+            }
+        }
         refreshCrashReport()
         registerPreferenceObservers()
         registerXtreamIndexJobObserver()
@@ -1187,6 +1196,10 @@ class SettingsViewModel @Inject constructor(
 
     fun deleteProvider(providerId: Long, onSuccess: () -> Unit = {}) {
         providerActions.deleteProvider(viewModelScope, providerId, onSuccess)
+    }
+
+    fun requestEditProvider(provider: Provider, onAllowed: (Provider) -> Unit) {
+        providerActions.requestEditProvider(viewModelScope, provider, onAllowed)
     }
 
     fun userMessageShown() {

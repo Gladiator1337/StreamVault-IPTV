@@ -126,6 +126,7 @@
 <string name="settings_external_playback_mode_external">External player</string>
 <string name="settings_connect">Verbinden</string>
 <string name="settings_edit">Bearbeiten</string>
+<string name="settings_provider_managed_by_plugin">Vom Plugin verwaltet</string>
 <string name="settings_m3u_vod_classification_refresh">Klassifizierung aktualisieren</string>
 <string name="settings_m3u_vod_classification_summary">Verwendet die M3U-URL und group-title-Regeln, um passende Einträge in Filme zu verschieben. Nach einer Änderung aktualisieren, um die Playlist neu anzuordnen.</string>
 <string name="settings_m3u_vod_classification_title">M3U-VOD-Klassifizierung</string>

@@ -21,6 +21,7 @@ import com.streamvault.domain.model.ProviderType
 @Composable
 public fun ProviderSettingsCard(
     provider: Provider,
+    isPluginManaged: Boolean,
     isActive: Boolean,
     isSyncing: Boolean,
     appTimeFormat: AppTimeFormat,
@@ -82,6 +83,13 @@ public fun ProviderSettingsCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = OnSurface
                 )
+                if (isPluginManaged) {
+                    Text(
+                        text = stringResource(R.string.settings_provider_managed_by_plugin),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Primary
+                    )
+                }
             }
             ProviderStatusBadge(
                 status = provider.status,
@@ -202,6 +210,7 @@ public fun ProviderSettingsCard(
 
         ProviderActionButtons(
             isActive = isActive,
+            isPluginManaged = isPluginManaged,
             isSyncing = isSyncing,
             liveOnboardingIncomplete = liveOnboardingIncomplete,
             onConnect = onConnect,

@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.streamvault.data.local.entity.PluginProviderOwnershipEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PluginProviderOwnershipDao {
@@ -24,6 +25,12 @@ interface PluginProviderOwnershipDao {
 
     @Query("SELECT * FROM plugin_provider_ownership")
     suspend fun getAll(): List<PluginProviderOwnershipEntity>
+
+    @Query("SELECT * FROM plugin_provider_ownership")
+    fun observeAll(): Flow<List<PluginProviderOwnershipEntity>>
+
+    @Query("SELECT * FROM plugin_provider_ownership WHERE provider_id = :providerId LIMIT 1")
+    suspend fun getByProviderId(providerId: Long): PluginProviderOwnershipEntity?
 
     @Query("""
         SELECT * FROM plugin_provider_ownership
