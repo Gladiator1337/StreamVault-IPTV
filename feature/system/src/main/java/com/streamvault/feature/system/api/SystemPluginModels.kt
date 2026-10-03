@@ -24,6 +24,10 @@ data class StreamVaultPluginManifest(
 ) {
     fun hasCapability(capability: String): Boolean = capability in capabilities
 
+    /** A plugin contributes at most one provider. Native Xtream wins over M3U when both are declared. */
+    val providerCapability: PluginProviderCapability?
+        get() = PluginProviderCapability.entries.firstOrNull { hasCapability(it.manifestCapability) }
+
     val supportsConfigurationActivity: Boolean
         get() = hasCapability(StreamVaultPluginContract.CAPABILITY_CONFIGURATION_ACTIVITY) &&
             !configurationActivityAction.isNullOrBlank()

@@ -25,6 +25,7 @@ object StreamVaultPluginContract {
     const val MSG_GET_CONFIGURATION_VALUES = 8
     const val MSG_SET_CONFIGURATION_VALUES = 9
     const val MSG_RUN_CONFIGURATION_ACTION = 10
+    const val MSG_GET_PROVIDER_CONFIGURATION = 11
 
     const val KEY_API_VERSION = "api_version"
     const val KEY_REQUEST_ID = "request_id"
@@ -36,6 +37,8 @@ object StreamVaultPluginContract {
     const val KEY_STATUS_LABEL = "status_label"
     const val KEY_URL = "url"
     const val KEY_PROVIDER_NAME = "provider_name"
+    const val KEY_PROVIDER_TYPE = "provider_type"
+    const val KEY_PROVIDER_CONFIGURATION_JSON = "provider_configuration_json"
     const val KEY_INPUT_URL = "input_url"
     const val KEY_OUTPUT_URL = "output_url"
     const val KEY_STREAM_TYPE = "stream_type"
@@ -55,6 +58,7 @@ object StreamVaultPluginContract {
     const val KEY_CONFIGURATION_ERRORS_JSON = "configuration_errors_json"
 
     const val CAPABILITY_PROVIDER_M3U = "provider.m3u"
+    const val CAPABILITY_PROVIDER_XTREAM = "provider.xtream"
     const val CAPABILITY_PLAYBACK_PREPARE = "playback.prepare"
     const val CAPABILITY_CAST_REWRITE_URL = "cast.rewriteUrl"
     const val CAPABILITY_CONFIGURATION_SCHEMA = "configuration.schema"

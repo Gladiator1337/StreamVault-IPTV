@@ -135,6 +135,10 @@ Capability names:
 
 - `provider.m3u`: the plugin can expose an M3U URL that StreamVault imports as a
   provider when enabled.
+- `provider.xtream`: the plugin can return a native Xtream provider configuration.
+  StreamVault validates it and uses its existing Xtream provider setup and sync
+  pipeline. If a plugin advertises both provider capabilities, `provider.xtream`
+  takes precedence and only one provider is created.
 - `playback.prepare`: the plugin can prepare a stream URL before playback starts.
 - `cast.rewriteUrl`: the plugin can rewrite a playback URL before Google Cast
   loads it.
@@ -171,6 +175,29 @@ Messages:
 | 8 | `MSG_GET_CONFIGURATION_VALUES` | Return `configuration_values_json`. |
 | 9 | `MSG_SET_CONFIGURATION_VALUES` | Persist `configuration_values_json`. |
 | 10 | `MSG_RUN_CONFIGURATION_ACTION` | Run `configuration_action_id`. |
+| 11 | `MSG_GET_PROVIDER_CONFIGURATION` | Return a typed provider configuration. Currently supports Xtream. |
+
+For `provider.xtream`, StreamVault sends message 11 after enabling the plugin and
+during provider reconciliation. A successful response must set `success=true`,
+`provider_type="xtream"`, and `provider_configuration_json` to a JSON object:
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "Example Xtream",
+  "serverUrl": "https://provider.example.com",
+  "username": "user",
+  "password": "secret"
+}
+```
+
+All five fields are required. The server URL must use HTTP or HTTPS and have a
+valid host. StreamVault rejects unsupported provider types, schema versions, and
+invalid configuration before creating or updating a native `XTREAM_CODES`
+provider through its normal provider repository. Credentials cross the Android
+Messenger boundary and are sensitive: plugins must never log the JSON, username,
+password, or credential-bearing URLs. `provider.m3u` continues to use message 4
+unchanged.
 
 For `playback.prepare` and `cast.rewriteUrl`, StreamVault only sends the message
 to plugins whose manifest already owns the URL (see `playbackUrlSchemes` /

@@ -14,6 +14,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import com.streamvault.app.BuildConfig
 import com.streamvault.feature.playback.api.CastMediaRequest
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
@@ -24,6 +25,7 @@ import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.DrmInfo
 import com.streamvault.domain.model.DrmScheme
 import com.streamvault.domain.model.M3uConfig
+import com.streamvault.domain.model.XtreamConfig
 import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderType
@@ -43,11 +45,13 @@ import com.streamvault.feature.system.api.PluginConfigurationSchema
 import com.streamvault.feature.system.api.PluginConfigurationSnapshot
 import com.streamvault.feature.system.api.PluginDiscoveryState
 import com.streamvault.feature.system.api.PluginDiscoveryStatus
+import com.streamvault.feature.system.api.PluginProviderCapability
 import com.streamvault.feature.system.api.StreamVaultPluginComponent
 import com.streamvault.feature.system.api.StreamVaultPluginContract
 import com.streamvault.feature.system.api.StreamVaultPluginManifest
 import com.streamvault.feature.system.api.StreamVaultPluginOwner
 import com.streamvault.feature.system.api.owner
+import com.streamvault.feature.system.api.parsePluginXtreamProviderConfiguration
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.net.URI
@@ -109,7 +113,10 @@ class StreamVaultPluginManager @Inject constructor(
             val pendingResult = goAsync()
             pluginWorkCoordinator.launchReconciliation {
                 try {
-                    reconcilePluginProviders()
+                    val refreshedPackage = intent.data?.schemeSpecificPart
+                        ?.takeIf { intent.action == Intent.ACTION_PACKAGE_REPLACED ||
+                            intent.action == Intent.ACTION_PACKAGE_CHANGED }
+                    reconcilePluginProviders(refreshedPackage)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -217,7 +224,7 @@ class StreamVaultPluginManager @Inject constructor(
      * Manifest retrieval is intentionally absent from this decision: an unresponsive service,
      * malformed update, or manifest-ID rename is not proof that its provider is orphaned.
      */
-    suspend fun reconcilePluginProviders() = withContext(Dispatchers.IO) {
+    suspend fun reconcilePluginProviders(refreshedPackageName: String? = null) = withContext(Dispatchers.IO) {
         pluginMutationMutex.withLock {
             val installedComponents = queryPluginServices().mapNotNull { resolveInfo ->
                 componentOf(resolveInfo)
@@ -240,6 +247,10 @@ class StreamVaultPluginManager @Inject constructor(
             // closes process-death windows between remote enable/disable, provider import, and
             // ownership persistence. An enabled source with missing ownership is also repaired.
             discoverPlugins().forEach { plugin ->
+                val priorOwnership = pluginProviderOwnershipDao.getByComponent(
+                    plugin.packageName, plugin.serviceClassName
+                ).singleOrNull()
+                migrateEnabledStateForManifestRename(plugin, priorOwnership)
                 val pending = pendingMutation(plugin.owner)
                 val desiredEnabled = pending ?: isEnabled(plugin)
                 if (pending != null) {
@@ -252,12 +263,16 @@ class StreamVaultPluginManager @Inject constructor(
                     }
                     prefs.edit().putBoolean(enabledKey(plugin.owner), desiredEnabled).apply()
                 }
-                if (!plugin.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_PROVIDER_M3U)) {
+                if (plugin.manifest.providerCapability == null) {
                     if (pending != null) clearPendingMutation(plugin.owner)
                     return@forEach
                 }
                 if (desiredEnabled) {
-                    if (pending != null || trackedOwnership(plugin) == null) {
+                    val ownership = trackedOwnership(plugin)
+                    if (pending != null || ownership == null ||
+                        (priorOwnership != null && priorOwnership.manifestId != plugin.manifest.id) ||
+                        refreshedPackageName == plugin.packageName
+                    ) {
                         if (syncPluginProvider(plugin, onProgress = {}) == null) {
                             prefs.edit().putBoolean(enabledKey(plugin.owner), true).apply()
                             clearPendingMutation(plugin.owner)
@@ -298,7 +313,7 @@ class StreamVaultPluginManager @Inject constructor(
         }
 
         prefs.edit().putBoolean(enabledKey(plugin.owner), enabled).apply()
-        if (enabled && plugin.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_PROVIDER_M3U)) {
+        if (enabled && plugin.manifest.providerCapability != null) {
             syncPluginProvider(plugin, onProgress)?.let { return@mutation it }
         } else if (!enabled) {
             removePluginProvider(plugin)?.let { return@mutation it }
@@ -662,11 +677,15 @@ class StreamVaultPluginManager @Inject constructor(
         plugin: InstalledStreamVaultPlugin,
         onProgress: (String) -> Unit
     ): PluginActionResult? {
+        val capability = plugin.manifest.providerCapability ?: return null
+        if (capability == PluginProviderCapability.XTREAM) {
+            return syncXtreamPluginProvider(plugin, onProgress)
+        }
         val providerResponse = runPluginCatching {
             messengerClient.send(
                 packageName = plugin.packageName,
                 serviceClassName = plugin.serviceClassName,
-                what = StreamVaultPluginContract.MSG_GET_PROVIDER_URL,
+                what = capability.requestMessage,
                 timeoutMillis = 120_000L
             )
         }.getOrElse { error ->
@@ -735,6 +754,65 @@ class StreamVaultPluginManager @Inject constructor(
             }
         }
 
+        persistPluginProvider(plugin, provider, activeSource)
+        return null
+    }
+
+    private suspend fun syncXtreamPluginProvider(
+        plugin: InstalledStreamVaultPlugin,
+        onProgress: (String) -> Unit
+    ): PluginActionResult? {
+        val providerResponse = runPluginCatching {
+            messengerClient.send(
+                packageName = plugin.packageName,
+                serviceClassName = plugin.serviceClassName,
+                what = PluginProviderCapability.XTREAM.requestMessage,
+                timeoutMillis = 120_000L
+            )
+        }.getOrElse {
+            return PluginActionResult(false, "Plugin provider configuration is unavailable")
+        }
+        if (!providerResponse.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, false)) {
+            return PluginActionResult(false, "Plugin provider configuration is unavailable")
+        }
+        val configuration = try {
+            parsePluginXtreamProviderConfiguration(
+                providerResponse.getString(StreamVaultPluginContract.KEY_PROVIDER_TYPE),
+                providerResponse.getString(StreamVaultPluginContract.KEY_PROVIDER_CONFIGURATION_JSON)
+            )
+        } catch (_: Exception) {
+            return PluginActionResult(false, "Invalid plugin provider configuration")
+        }
+        val activeSource = combinedM3uRepository.getActiveLiveSource().first()
+        val existingProviderId = trackedProvider(plugin)?.id
+        val setupResult = runPluginCatching { providerRepository.setupProvider(
+            request = ProviderSetupRequest.Configured(
+                name = configuration.name,
+                configuration = XtreamConfig(
+                    serverUrl = configuration.serverUrl,
+                    username = configuration.username,
+                    password = configuration.password
+                ),
+                existingProviderId = existingProviderId
+            ),
+            onProgress = onProgress
+        ) }.getOrElse {
+            return PluginActionResult(false, "Plugin Xtream provider setup failed")
+        }
+        val provider = when (val result = setupResult) {
+            is Result.Success -> result.data
+            is Result.Error -> return PluginActionResult(false, "Plugin Xtream provider setup failed")
+            Result.Loading -> return PluginActionResult(false, "Plugin Xtream provider setup is still running")
+        }
+        persistPluginProvider(plugin, provider, activeSource)
+        return null
+    }
+
+    private suspend fun persistPluginProvider(
+        plugin: InstalledStreamVaultPlugin,
+        provider: Provider,
+        activeSource: ActiveLiveSource?
+    ) {
         pluginProviderOwnershipDao.upsert(
             PluginProviderOwnershipEntity(
                 packageName = plugin.packageName,
@@ -746,7 +824,6 @@ class StreamVaultPluginManager @Inject constructor(
         providerRepository.setActiveProvider(provider.id)
         attachProviderToLiveSource(provider.id, activeSource)
         refreshTvInputCatalogInBackground()
-        return null
     }
 
     private suspend fun sendEnabledCommand(
@@ -823,7 +900,8 @@ class StreamVaultPluginManager @Inject constructor(
                 providerId = ownership.providerId,
                 enabled = plugin.enabled,
                 capabilities = plugin.manifest.capabilities.toSet(),
-                backingProviderType = ProviderType.M3U
+                backingProviderType = providerRepository.getProvider(ownership.providerId)?.type
+                    ?: return@mapNotNull null
             )
         }
     }
@@ -1049,6 +1127,25 @@ class StreamVaultPluginManager @Inject constructor(
     private fun isEnabled(plugin: InstalledStreamVaultPlugin): Boolean =
         prefs.getBoolean(enabledKey(plugin.owner), false)
 
+    private fun migrateEnabledStateForManifestRename(
+        plugin: InstalledStreamVaultPlugin,
+        priorOwnership: PluginProviderOwnershipEntity?
+    ) {
+        if (priorOwnership == null || priorOwnership.manifestId == plugin.manifest.id ||
+            prefs.contains(enabledKey(plugin.owner))
+        ) return
+        val oldOwner = StreamVaultPluginOwner(
+            priorOwnership.packageName,
+            priorOwnership.serviceClassName,
+            priorOwnership.manifestId
+        )
+        val oldKey = enabledKey(oldOwner)
+        if (prefs.contains(oldKey)) {
+            prefs.edit().putBoolean(enabledKey(plugin.owner), prefs.getBoolean(oldKey, false)).apply()
+            invalidateDiscovery()
+        }
+    }
+
     /** Legacy state is safe to migrate only when no installed service shares its manifest ID. */
     private fun migrateLegacyEnabledStates(plugins: List<InstalledStreamVaultPlugin>) {
         val uniqueManifestIds = plugins.groupingBy { it.manifest.id }.eachCount()
@@ -1086,18 +1183,18 @@ class StreamVaultPluginManager @Inject constructor(
     private fun clearPendingMutationsForMissingComponents(
         installedComponents: Set<StreamVaultPluginComponent>
     ) {
-        val editor = prefs.edit()
-        prefs.all.keys.asSequence()
-            .filter { it.startsWith(PENDING_MUTATION_PREFIX) }
-            .forEach { key ->
-                val identity = key.removePrefix(PENDING_MUTATION_PREFIX).split('|', limit = 3)
-                if (identity.size < 2 ||
-                    StreamVaultPluginComponent(identity[0], identity[1]) !in installedComponents
-                ) {
-                    editor.remove(key)
+        prefs.edit {
+            prefs.all.keys.asSequence()
+                .filter { it.startsWith(PENDING_MUTATION_PREFIX) }
+                .forEach { key ->
+                    val identity = key.removePrefix(PENDING_MUTATION_PREFIX).split('|', limit = 3)
+                    if (identity.size < 2 ||
+                        StreamVaultPluginComponent(identity[0], identity[1]) !in installedComponents
+                    ) {
+                        remove(key)
+                    }
                 }
-            }
-        editor.apply()
+        }
     }
 
     private fun legacyEnabledKey(pluginId: String): String = "enabled.$pluginId"
